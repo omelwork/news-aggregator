@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI News Aggregator</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+
+<body>
+    <header class="header">
+        <h1 class="logo">AI News Aggregator</h1>
+        <div class="header-actions">
+            <button class="btn btn-icon-only" id="themeBtn" title="Toggle theme">
+                🌙
+            </button>
+            <button class="btn btn-lang" id="langBtn" title="Switch language">
+                EN
+            </button>
+            <button class="btn btn-primary" id="settingsBtn">
+                <span class="btn-icon">⚙️</span> Settings
+            </button>
+            <button class="btn btn-primary" id="refreshBtn">
+                <span class="btn-icon">↻</span> Refresh
+            </button>
+        </div>
+    </header>
+
+    <nav class="filters">
+        <button class="filter-btn active" data-source="all">All Sources</button>
+        <button class="filter-btn" data-source="reddit">Reddit</button>
+        <button class="filter-btn" data-source="hackernews">Hacker News</button>
+        <button class="filter-btn" data-source="arxiv">arXiv</button>
+        <button class="filter-btn" data-source="blog">Blogs</button>
+    </nav>
+
+    <main class="main">
+        <div class="news-grid" id="newsGrid">
+            <div class="loading">Загрузка новостей...</div>
+        </div>
+    </main>
+
+    <!-- Settings Modal -->
+    <div class="modal-overlay" id="modalOverlay">
+        <div class="modal">
+            <div class="modal-header">
+                <h2>⚙️ Source Settings</h2>
+                <button class="modal-close" id="modalClose">×</button>
+            </div>
+            <div class="modal-body">
+                <!-- Reddit Subreddits -->
+                <section class="settings-section">
+                    <h3 class="settings-title">Reddit Subreddits</h3>
+                    <div id="subredditsList" class="settings-list"></div>
+                    <button class="btn btn-add" id="addSubreddit">+ Add subreddit</button>
+                </section>
+
+                <!-- RSS Feeds -->
+                <section class="settings-section">
+                    <h3 class="settings-title">RSS Feeds</h3>
+                    <div id="rssFeedsList" class="settings-list"></div>
+                    <button class="btn btn-add" id="addRssFeed">+ Add RSS feed</button>
+                </section>
+
+                <!-- Hacker News Keywords -->
+                <section class="settings-section">
+                    <h3 class="settings-title">Hacker News Keywords</h3>
+                    <div id="keywordsList" class="settings-list"></div>
+                    <button class="btn btn-add" id="addKeyword">+ Add keyword</button>
+                </section>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" id="cancelBtn">Cancel</button>
+                <button class="btn btn-primary" id="saveBtn">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+
+</html>
