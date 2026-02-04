@@ -1,9 +1,10 @@
 """
 AI News Aggregator - FastAPI Backend
-Локальный агрегатор новостей с JSON-кэшированием (TTL 36 часов)
+Агрегатор новостей с SQLite базой данных (хранение 3 дня)
 """
 
 import json
+import sqlite3
 import asyncio
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -19,11 +20,54 @@ app = FastAPI(title="AI News Aggregator")
 # Пути к файлам
 BASE_DIR = Path(__file__).parent
 CONFIG_FILE = BASE_DIR / "config.json"
-CACHE_FILE = BASE_DIR / "cache.json"
+DB_FILE = BASE_DIR / "news.db"
 STATIC_DIR = BASE_DIR / "static"
+
+# TTL для хранения новостей (3 дня)
+NEWS_TTL_DAYS = 3
 
 # Монтируем статику
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+
+def get_db_connection():
+    """Получение соединения с БД"""
+    conn = sqlite3.connect(DB_FILE)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def init_db():
+    """Инициализация базы данных"""
+    conn = get_db_connection()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS news (
+            id TEXT PRIMARY KEY,
+            source TEXT NOT NULL,
+            source_name TEXT,
+            title TEXT NOT NULL,
+            description TEXT,
+            url TEXT NOT NULL,
+            author TEXT,
+            published_at TEXT,
+            fetched_at TEXT NOT NULL
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS metadata (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_news_fetched_at ON news(fetched_at)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_news_source ON news(source)")
+    conn.commit()
+    conn.close()
+    print("✅ SQLite database initialized")
+
+
+# Инициализация БД при старте
+init_db()
 
 
 def load_config() -> dict:
@@ -34,7 +78,6 @@ def load_config() -> dict:
         "subreddits": ["MachineLearning", "artificial"],
         "rss_feeds": [],
         "hackernews_keywords": ["AI", "GPT"],
-        "cache_ttl_hours": 36,
         "refresh_interval_minutes": 15
     }
 
@@ -44,31 +87,75 @@ def save_config(config: dict):
     CONFIG_FILE.write_text(json.dumps(config, indent=2))
 
 
-def load_cache() -> dict:
-    """Загрузка кэша"""
-    if CACHE_FILE.exists():
-        return json.loads(CACHE_FILE.read_text())
-    return {"items": [], "last_updated": None}
+def get_last_updated() -> Optional[str]:
+    """Получение времени последнего обновления"""
+    conn = get_db_connection()
+    cursor = conn.execute("SELECT value FROM metadata WHERE key = 'last_updated'")
+    row = cursor.fetchone()
+    conn.close()
+    return row["value"] if row else None
 
 
-def save_cache(cache: dict):
-    """Сохранение кэша"""
-    CACHE_FILE.write_text(json.dumps(cache, indent=2, default=str))
+def set_last_updated(timestamp: str):
+    """Установка времени последнего обновления"""
+    conn = get_db_connection()
+    conn.execute(
+        "INSERT OR REPLACE INTO metadata (key, value) VALUES ('last_updated', ?)",
+        (timestamp,)
+    )
+    conn.commit()
+    conn.close()
 
 
-def clean_old_items(items: list, ttl_hours: int) -> list:
-    """Удаление элементов старше TTL"""
-    cutoff = datetime.now() - timedelta(hours=ttl_hours)
-    cleaned = []
+def save_news_items(items: list):
+    """Сохранение новостей в БД"""
+    conn = get_db_connection()
     for item in items:
-        try:
-            item_time = datetime.fromisoformat(item.get("fetched_at", ""))
-            if item_time > cutoff:
-                cleaned.append(item)
-        except (ValueError, TypeError):
-            # Если не можем распарсить дату - пропускаем
-            pass
-    return cleaned
+        conn.execute("""
+            INSERT OR REPLACE INTO news 
+            (id, source, source_name, title, description, url, author, published_at, fetched_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            item["id"],
+            item["source"],
+            item.get("source_name"),
+            item["title"],
+            item.get("description"),
+            item["url"],
+            item.get("author"),
+            item.get("published_at"),
+            item["fetched_at"]
+        ))
+    conn.commit()
+    conn.close()
+
+
+def clean_old_news():
+    """Удаление новостей старше TTL"""
+    cutoff = (datetime.now() - timedelta(days=NEWS_TTL_DAYS)).isoformat()
+    conn = get_db_connection()
+    cursor = conn.execute("DELETE FROM news WHERE fetched_at < ?", (cutoff,))
+    deleted = cursor.rowcount
+    conn.commit()
+    conn.close()
+    if deleted > 0:
+        print(f"🧹 Cleaned {deleted} old news items")
+
+
+def get_news_from_db(source: Optional[str] = None) -> list:
+    """Получение новостей из БД"""
+    conn = get_db_connection()
+    if source:
+        cursor = conn.execute(
+            "SELECT * FROM news WHERE source = ? ORDER BY published_at DESC",
+            (source,)
+        )
+    else:
+        cursor = conn.execute("SELECT * FROM news ORDER BY published_at DESC")
+    
+    items = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+    return items
 
 
 async def fetch_reddit(subreddits: list) -> list:
@@ -211,12 +298,6 @@ async def fetch_all_sources() -> list:
     for result in results:
         all_items.extend(result)
     
-    # Сортировка по дате публикации (новые первыми)
-    all_items.sort(
-        key=lambda x: x.get("published_at") or x.get("fetched_at") or "",
-        reverse=True
-    )
-    
     return all_items
 
 
@@ -233,42 +314,41 @@ async def get_news(
 ):
     """Получение новостей"""
     config = load_config()
-    cache = load_cache()
     
-    # Проверяем нужно ли обновить кэш
+    # Проверяем нужно ли обновить
     should_refresh = force_refresh
-    if not should_refresh and cache.get("last_updated"):
+    last_updated = get_last_updated()
+    
+    if not should_refresh and last_updated:
         try:
-            last_update = datetime.fromisoformat(cache["last_updated"])
+            last_update = datetime.fromisoformat(last_updated)
             refresh_interval = timedelta(minutes=config.get("refresh_interval_minutes", 15))
             if datetime.now() - last_update > refresh_interval:
                 should_refresh = True
         except ValueError:
             should_refresh = True
     
-    if should_refresh or not cache.get("items"):
+    if should_refresh or not last_updated:
         # Получаем свежие данные
         items = await fetch_all_sources()
         
-        # Очищаем старые и сохраняем
-        ttl = config.get("cache_ttl_hours", 36)
-        items = clean_old_items(items, ttl)
+        # Сохраняем в БД
+        save_news_items(items)
         
-        cache = {
-            "items": items,
-            "last_updated": datetime.now().isoformat()
-        }
-        save_cache(cache)
+        # Очищаем старые записи
+        clean_old_news()
+        
+        # Обновляем время
+        now = datetime.now().isoformat()
+        set_last_updated(now)
+        last_updated = now
     
-    items = cache.get("items", [])
-    
-    # Фильтрация по источнику
-    if source:
-        items = [i for i in items if i.get("source") == source]
+    # Получаем из БД
+    items = get_news_from_db(source)
     
     return {
         "items": items,
-        "last_updated": cache.get("last_updated"),
+        "last_updated": last_updated,
         "total": len(items)
     }
 
@@ -290,6 +370,25 @@ async def update_config(config: dict):
     """Обновление конфигурации"""
     save_config(config)
     return {"status": "ok"}
+
+
+@app.get("/api/stats")
+async def get_stats():
+    """Статистика базы данных"""
+    conn = get_db_connection()
+    cursor = conn.execute("SELECT COUNT(*) as total FROM news")
+    total = cursor.fetchone()["total"]
+    
+    cursor = conn.execute("SELECT source, COUNT(*) as count FROM news GROUP BY source")
+    by_source = {row["source"]: row["count"] for row in cursor.fetchall()}
+    
+    conn.close()
+    
+    return {
+        "total_items": total,
+        "by_source": by_source,
+        "ttl_days": NEWS_TTL_DAYS
+    }
 
 
 # Translation support
@@ -341,6 +440,6 @@ async def translate_news(data: dict):
 
 if __name__ == "__main__":
     import uvicorn
-    print("🚀 Starting AI News Aggregator...")
+    print("🚀 Starting AI News Aggregator with SQLite...")
     print("📍 Open http://localhost:8000 in your browser")
     uvicorn.run(app, host="0.0.0.0", port=8000)

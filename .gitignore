@@ -16,6 +16,7 @@ ENV/
 
 # Cache (будет создаваться заново на сервере)
 cache.json
+news.db
 
 # OS
 .DS_Store
