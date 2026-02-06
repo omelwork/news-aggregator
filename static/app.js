@@ -200,19 +200,34 @@ async function loadConfig() {
 }
 
 async function loadAuthorPreset() {
-    const confirmMsg = currentLang === 'ru'
-        ? 'Все текущие настройки будут заменены на рекомендуемые автором. Продолжить?'
-        : 'All current settings will be replaced with author recommendations. Continue?';
-
-    if (!confirm(confirmMsg)) {
-        return;
-    }
-
     try {
         const response = await fetch('/api/config/preset');
         const preset = await response.json();
         config = preset;
         renderSettingsLists();
+
+        // Показываем уведомление об успехе
+        const successMsg = currentLang === 'ru'
+            ? 'Настройки загружены!'
+            : 'Settings loaded!';
+
+        // Создаём временное уведомление
+        const notification = document.createElement('div');
+        notification.textContent = successMsg;
+        notification.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: linear-gradient(135deg, #22c55e, #16a34a);
+            color: white;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-weight: 600;
+            z-index: 9999;
+            animation: fadeInOut 2s ease-in-out forwards;
+        `;
+        document.body.appendChild(notification);
+        setTimeout(() => notification.remove(), 2000);
     } catch (error) {
         console.error('Error loading preset:', error);
         const errorMsg = currentLang === 'ru' ? 'Ошибка загрузки пресета' : 'Error loading preset';
