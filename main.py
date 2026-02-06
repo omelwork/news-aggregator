@@ -26,6 +26,27 @@ STATIC_DIR = BASE_DIR / "static"
 # TTL для хранения новостей (3 дня)
 NEWS_TTL_DAYS = 3
 
+# Авторский пресет каналов
+AUTHOR_PRESET = {
+    "subreddits": [
+        "MachineLearning",
+        "artificial",
+        "ArtificialIntelligence",
+        "LocalLLaMA",
+        "singularity"
+    ],
+    "rss_feeds": [
+        {"name": "Google AI Blog", "url": "https://blog.google/technology/ai/rss/"},
+        {"name": "HuggingFace Blog", "url": "https://huggingface.co/blog/feed.xml"},
+        {"name": "AWS ML Blog", "url": "https://aws.amazon.com/blogs/machine-learning/feed/"}
+    ],
+    "hackernews_keywords": [
+        "AI", "GPT", "LLM", "machine learning", "deep learning"
+    ],
+    "cache_ttl_hours": 36,
+    "refresh_interval_minutes": 15
+}
+
 # Монтируем статику
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
@@ -370,6 +391,12 @@ async def update_config(config: dict):
     """Обновление конфигурации"""
     save_config(config)
     return {"status": "ok"}
+
+
+@app.get("/api/config/preset")
+async def get_author_preset():
+    """Получение авторского пресета каналов"""
+    return AUTHOR_PRESET
 
 
 @app.get("/api/stats")

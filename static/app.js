@@ -128,6 +128,9 @@ function setupEventListeners() {
     document.getElementById('addSubreddit').addEventListener('click', () => addSettingsItem('subreddits'));
     document.getElementById('addRssFeed').addEventListener('click', () => addSettingsItem('rss_feeds'));
     document.getElementById('addKeyword').addEventListener('click', () => addSettingsItem('hackernews_keywords'));
+
+    // Load author preset
+    document.getElementById('loadPresetBtn').addEventListener('click', loadAuthorPreset);
 }
 
 // API Functions
@@ -193,6 +196,27 @@ async function loadConfig() {
         config = await response.json();
     } catch (error) {
         console.error('Error loading config:', error);
+    }
+}
+
+async function loadAuthorPreset() {
+    const confirmMsg = currentLang === 'ru'
+        ? 'Все текущие настройки будут заменены на рекомендуемые автором. Продолжить?'
+        : 'All current settings will be replaced with author recommendations. Continue?';
+
+    if (!confirm(confirmMsg)) {
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/config/preset');
+        const preset = await response.json();
+        config = preset;
+        renderSettingsLists();
+    } catch (error) {
+        console.error('Error loading preset:', error);
+        const errorMsg = currentLang === 'ru' ? 'Ошибка загрузки пресета' : 'Error loading preset';
+        alert(errorMsg);
     }
 }
 
